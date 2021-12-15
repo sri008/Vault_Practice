@@ -1,0 +1,528 @@
+# Vault Exercise
+
+# Server start
+
+vault server -dev
+vault server -dev -dev-root-token-id=root
+
+You may need to set the following environment variable:
+
+    $ export VAULT_ADDR='http://127.0.0.1:8200'
+
+The unseal key and root token are displayed below in case you want to
+seal/unseal the Vault or re-authenticate.
+
+Unseal Key: 99DSv7UB+p/DM3Ltiq+uMV8sUOKuIjn8TDtmRS56Rq4=
+Root Token: s.4OzqbiwknPO4tQwk2nCaSo3l
+
+
+export VAULT_TOKEN=root
+export VAULT_ADDR='http://127.0.0.1:8200'
+
+
+# created the RoleID and SecretID
+vault read auth/approle/role/myRole/role-id
+
+vault write -force auth/approle/role/myRole/secret-id
+
+[ec2-user@ip-172-31-31-194 ~]$ vault read auth/approle/role/jenkinsRole/role-id
+Key        Value
+---        -----
+role_id    7cfca9af-7d84-fc23-3353-e3945efafa7e
+[ec2-user@ip-172-31-31-194 ~]$ vault write -force auth/approle/role/jenkinsRole/secret-id
+Key                   Value
+---                   -----
+secret_id             124597b0-3799-2e8d-236f-9b82a05a8d17
+secret_id_accessor    5133575c-1791-3ef4-8ecd-cb68c7cac352
+secret_id_ttl         0s
+
+# Login with RoleID and SecretID  [generate the TOKEN]
+
+ec2-user@ip-172-31-31-194 ~]$ vault write auth/approle/login role_id="7cfca9af-7d84-fc23-3353-e3945efafa7e" secret_id="124597b0-3799-2e8d-236f-9b82a05a8d17"
+Key                     Value
+---                     -----
+token                   s.t9EJwFkMikm6XzKAr4szWvF5
+token_accessor          Jeb0VRJ00caLlpDzz0ammv2X
+token_duration          1h
+token_renewable         true
+token_policies          ["default" "jenkins"]
+identity_policies       []
+policies                ["default" "jenkins"]
+token_meta_role_name    jenkinsrole
+
+# Use the new Token
+export APP_TOKEN="s.t9EJwFkMikm6XzKAr4szWvF5"
+VAULT_TOKEN=$APPTOKEN vault kv get secret/mysql/webapp
+
+[ec2-user@ip-172-31-31-194 ~]$ VAULT_TOKEN=$APP_TOKEN vault kv get secret/mysql/weapp
+======= Metadata =======
+Key                Value
+---                -----
+created_time       2021-12-10T18:28:40.660254636Z
+custom_metadata    <nil>
+deletion_time      n/a
+destroyed          false
+version            1
+
+====== Data ======
+Key         Value
+---         -----
+db_name     users
+password    sri
+username    Sri
+
+# generate the wrapped SecretID
+
+vault write -wrap-ttl=60s -force auth/approle/role/myRole/secret-id
+
+[ec2-user@ip-172-31-31-194 ~]$ vault write -wrap-ttl=60s -force auth/approle/role/jenkinsRole/secret-id
+Key                              Value
+---                              -----
+wrapping_token:                  s.sVwkWbxmF38dI1DsF5GBmRsB
+wrapping_accessor:               hyBkgURSfwmfzWGs77Sx28rO
+wrapping_token_ttl:              1m
+wrapping_token_creation_time:    2021-12-10 20:40:13.829310491 +0000 UTC
+wrapping_token_creation_path:    auth/approle/role/jenkinsRole/secret-id
+wrapped_accessor:                ccc06696-d1d8-1b6a-f002-fa66c8cf9986
+
+VAULT_TOKEN=$wrapping_token vault unwrap
+
+# Create KV [key value] Secret Engine
+
+vault secrets enable -path="new-path" kv
+
+ec2-user@ip-172-31-31-194 ~]$ vault secrets list -detailed
+Path          Plugin       Accessor              Default TTL    Max TTL    Force No Cache    Replication    Seal Wrap    External Entropy Access    Options           Description                                                UUID
+----          ------       --------              -----------    -------    --------------    -----------    ---------    -----------------------    -------           -----------                                                ----
+cubbyhole/    cubbyhole    cubbyhole_696b4360    n/a            n/a        false             local          false        false                      map[]             per-token private secret storage                           54dc6e5d-5bf8-862e-c20b-828ef20d1a2f
+identity/     identity     identity_fbc9516d     system         system     false             replicated     false        false                      map[]             identity store                                             6aff1f55-02eb-30c3-6f65-c1bff2f0c052
+secret/       kv           kv_d11a7593           system         system     false             replicated     false        false                      map[version:2]    key/value secret storage                                   a9b6bf53-68a4-6e4c-4290-6932ccf99b90
+sys/          system       system_135e30d3       n/a            n/a        false             replicated     false        false                      map[]             system endpoints used for control, policy and debugging    523fa5e0-aa14-ad12-32cd-01ed888214c9
+
+[ec2-user@ip-172-31-31-194 ~]$ vault secrets enable -path="newkv-v1" kv
+Success! Enabled the kv secrets engine at: newkv-v1/
+
+[ec2-user@ip-172-31-31-194 ~]$ vault secrets list -detailed
+Path          Plugin       Accessor              Default TTL    Max TTL    Force No Cache    Replication    Seal Wrap    External Entropy Access    Options           Description                                                UUID
+----          ------       --------              -----------    -------    --------------    -----------    ---------    -----------------------    -------           -----------                                                ----
+cubbyhole/    cubbyhole    cubbyhole_696b4360    n/a            n/a        false             local          false        false                      map[]             per-token private secret storage                           54dc6e5d-5bf8-862e-c20b-828ef20d1a2f
+identity/     identity     identity_fbc9516d     system         system     false             replicated     false        false                      map[]             identity store                                             6aff1f55-02eb-30c3-6f65-c1bff2f0c052
+newkv-v1/     kv           kv_a78130a9           system         system     false             replicated     false        false                      map[]             n/a                                                        57abeec7-69f5-e0f6-f7a3-98f9453350a9
+secret/       kv           kv_d11a7593           system         system     false             replicated     false        false                      map[version:2]    key/value secret storage                                   a9b6bf53-68a4-6e4c-4290-6932ccf99b90
+sys/          system       system_135e30d3       n/a            n/a        false             replicated     false        false                      map[]             system endpoints used for control, policy and debugging    523fa5e0-aa14-ad12-32cd-01ed888214c9
+
+# KV mode v1
+
+Success! Enabled the kv secrets engine at: kv1/
+[ec2-user@ip-172-31-31-194 ~]$ vault kv put kv1/my-secret myvalue=5567
+Success! Data written to: kv1/my-secret
+[ec2-user@ip-172-31-31-194 ~]$ vault kv list kv1/
+Keys
+----
+my-secret
+[ec2-user@ip-172-31-31-194 ~]$ vault kv get kv1
+No value found at kv1
+[ec2-user@ip-172-31-31-194 ~]$ vault kv get kv1/my-secret
+===== Data =====
+Key        Value
+---        -----
+myvalue    5567
+[ec2-user@ip-172-31-31-194 ~]$ vault kv delete kv1/ny-secret
+Success! Data deleted (if it existed) at: kv1/ny-secret
+[ec2-user@ip-172-31-31-194 ~]$ vault kv get kv1
+No value found at kv1
+[ec2-user@ip-172-31-31-194 ~]$
+
+# KV mode v2
+[ec2-user@ip-172-31-31-194 ~]$  vault secrets enable -path=kv2 -version=2 kv
+
+[ec2-user@ip-172-31-31-194 ~]$ vault kv get kv2/my-secret
+======= Metadata =======
+Key                Value
+---                -----
+created_time       2021-12-11T10:03:47.883859938Z
+custom_metadata    <nil>
+deletion_time      n/a
+destroyed          false
+version            1
+
+=== Data ===
+Key    Value
+---    -----
+bar    67
+foo    1
+[ec2-user@ip-172-31-31-194 ~]$ vault kv put kv2/my-secret foo=aa bar=768
+Key                Value
+---                -----
+created_time       2021-12-11T10:06:22.615384496Z
+custom_metadata    <nil>
+deletion_time      n/a
+destroyed          false
+version            2
+[ec2-user@ip-172-31-31-194 ~]$ vault kv put kv2/my-secret bar=76823
+Key                Value
+---                -----
+created_time       2021-12-11T10:06:31.678376286Z
+custom_metadata    <nil>
+deletion_time      n/a
+destroyed          false
+version            3
+[ec2-user@ip-172-31-31-194 ~]$ vault kv put kv2/my-secret sal=hfg
+Key                Value
+---                -----
+created_time       2021-12-11T10:06:44.508049927Z
+custom_metadata    <nil>
+deletion_time      n/a
+destroyed          false
+version            4
+[ec2-user@ip-172-31-31-194 ~]$ vault kv get kv2/my-secret
+======= Metadata =======
+Key                Value
+---                -----
+created_time       2021-12-11T10:06:44.508049927Z
+custom_metadata    <nil>
+deletion_time      n/a
+destroyed          false
+version            4
+
+=== Data ===
+Key    Value
+---    -----
+sal    hfg
+
+
+# Vault cubbyhole
+# use of response-wrapping token
+
+POLICY used
+
+# TO READ THE KV
+# For teting read only on secret/dav path
+path "secret/data/dev" {
+  capabilities=["read"]
+}
+
+path "kv01/data/helo"{
+  capabilities=["read","create"]
+}
+
+
+[ec2-user@ip-172-31-31-194 ~]$ vault token create -policy="apps-cubby" -wrap-ttl=3600
+Key                              Value
+---                              -----
+wrapping_token:                  s.EQeAhzyT9RpUoBk4fiGaxHca
+wrapping_accessor:               lVhzwsXSABUQCiLLpC4GrVtI
+wrapping_token_ttl:              1h
+wrapping_token_creation_time:    2021-12-12 00:54:30.727213192 +0000 UTC
+wrapping_token_creation_path:    auth/token/create
+wrapped_accessor:                HG5pieX61FWWUcnWSiiFzihL
+[ec2-user@ip-172-31-31-194 ~]$ vault token create -policy="default"
+Key                  Value
+---                  -----
+token                s.ZCc1XqpQTPPGScNZ55VsxxF4
+token_accessor       PHRbOW22fKuKyPNuhfPd7khU
+token_duration       768h
+token_renewable      true
+token_policies       ["default"]
+identity_policies    []
+policies             ["default"]
+[ec2-user@ip-172-31-31-194 ~]$ vault login s.ZCc1XqpQTPPGScNZ55VsxxF4
+Success! You are now authenticated. The token information displayed below
+is already stored in the token helper. You do NOT need to run "vault login"
+again. Future Vault requests will automatically use this token.
+
+Key                  Value
+---                  -----
+token                s.ZCc1XqpQTPPGScNZ55VsxxF4
+token_accessor       PHRbOW22fKuKyPNuhfPd7khU
+token_duration       767h59m45s
+token_renewable      true
+token_policies       ["default"]
+identity_policies    []
+policies             ["default"]
+[ec2-user@ip-172-31-31-194 ~]$ VAULT_TOKEN=s.EQeAhzyT9RpUoBk4fiGaxHca vault unwrap
+Key                  Value
+---                  -----
+token                s.TnGIBN6ennZOCUhmuJ0JMnDh
+token_accessor       HG5pieX61FWWUcnWSiiFzihL
+token_duration       768h
+token_renewable      true
+token_policies       ["apps-cubby" "default"]
+identity_policies    []
+policies             ["apps-cubby" "default"]
+[ec2-user@ip-172-31-31-194 ~]$ vault login s.TnGIBN6ennZOCUhmuJ0JMnDh
+Success! You are now authenticated. The token information displayed below
+is already stored in the token helper. You do NOT need to run "vault login"
+again. Future Vault requests will automatically use this token.
+
+Key                  Value
+---                  -----
+token                s.TnGIBN6ennZOCUhmuJ0JMnDh
+token_accessor       HG5pieX61FWWUcnWSiiFzihL
+token_duration       767h58m26s
+token_renewable      true
+token_policies       ["apps-cubby" "default"]
+identity_policies    []
+policies             ["apps-cubby" "default"]
+[ec2-user@ip-172-31-31-194 ~]$ vault kv get secret
+Error reading secret/data: Error making API request.
+
+URL: GET http://127.0.0.1:8200/v1/secret/data
+Code: 403. Errors:
+
+* 1 error occurred:
+        * permission denied
+
+
+[ec2-user@ip-172-31-31-194 ~]$ vault kv get kv01/helo
+Error reading kv01/data/helo: Error making API request.
+
+URL: GET http://127.0.0.1:8200/v1/kv01/data/helo
+Code: 403. Errors:
+
+* 1 error occurred:
+        * permission denied
+
+
+[ec2-user@ip-172-31-31-194 ~]$ vault kv get secret/dev
+======= Metadata =======
+Key                Value
+---                -----
+created_time       2021-12-12T00:24:33.336396869Z
+custom_metadata    <nil>
+deletion_time      n/a
+destroyed          false
+version            1
+
+====== Data ======
+Key         Value
+---         -----
+password    123
+username    nic
+[ec2-user@ip-172-31-31-194 ~]$ vault kv get kv01/helo
+======= Metadata =======
+Key                Value
+---                -----
+created_time       2021-12-12T00:38:40.145980257Z
+custom_metadata    <nil>
+deletion_time      n/a
+destroyed          false
+version            1
+
+==== Data ====
+Key     Value
+---     -----
+user    nick
+
+[ec2-user@ip-172-31-31-194 ~]$ vault write cubbyhole/wrapT heloC=123
+Success! Data written to: cubbyhole/wrapT
+[ec2-user@ip-172-31-31-194 ~]$ vault read cubbyhole/wrapT
+Key      Value
+---      -----
+heloC    123
+
+# TRY TO READ THE NEW SECRET CREATED IN CUBBYHOLE BY ANOTHER TOKEN
+[ec2-user@ip-172-31-31-194 ~]$ vault read cubbyhole/wrapT
+No value found at cubbyhole/wrapT
+
+###############################################################################
+# dynamic secrets | database secret engine | DB SE
+Notes in register
+Not able to see practically
+
+
+###############################################################################
+
+# Vault Storage
+
+High Availability
+  CONSUL
+  DynamoDB
+  Etcd
+  FoundationDB
+  PostgreSQL
+  mysql
+  Google Cloud Spanner
+  Google Cloud Storage
+  Zookeeper
+
+Storage Supported by HashiCorp
+  CONSUL
+  Filesystem
+  In-memory
+
+
+Aerospike Storage Backend
+    NO High Availability
+    Community Supported
+Alicloud OSS Storage Backend
+    NO High Availability
+    Community Supported
+
+    storage "NAME" {
+    access_key = ""
+    secreet_key= ""
+    endpoint = ""
+    bucket = ""
+    }
+
+Azure Storage Backend
+    use Azure Storage Container - it must exist before it use and account credentials must have read & write permission
+    must support block blobs -- "Storage V2" with Standard Performance
+    NO High Availability
+    4MB per blob
+
+    storage "NAME" {
+    accountName = ""
+    accountKey = ""
+    container = ""
+    environment = ""
+    }
+
+Apache Cassandra Storage Backend
+    NO High Availability
+    Community Supported
+    Doesn't automatically create keyspace and table
+
+    storage "NAME" {
+    hosts = ""
+    consistency = ""
+    protocol_version =
+    }
+
+CONSUL Storage Backend
+    Key-Value store
+    High Availability
+    HashiCorp SUpport
+
+    storage "NAME" {
+    address ="...:8500"
+    }
+
+    Unsealed Vault available at --> active.vault.service.consul
+    Unsealed Vault instance in standby mode --> standby.vault.service.consul
+    All Unsealed Vault are available as healthy --> vault.service.consul
+    Sealed Vault will mark as UNHEALTHY
+
+    api_addr & cluster_addr -->
+
+CockroachDB
+    NO High Availability
+    Compatible with PostgreSQL db driver and use that driver to interact with db
+
+    storage "NAME" {
+    connection_url =""
+    }
+
+CouchDB
+    No High Availability
+
+    storage "NAME" {
+    endpoint ="http://....."
+    username = ""
+    password = ""
+    }
+
+DynamoDB storage Backend
+    High Availability
+    Community Supported
+
+    storage "NAME" {
+    ha_enabled = ""
+    region =""
+    table =""
+    }
+
+Etcd Storage Backend
+    HIGH Availability
+    v2 and v3 API Supported
+
+    storage "NAME" {
+    address = "http://"
+    etcd_api = "v3"
+    }
+
+Filesystem Storage Backend
+    No High Availability
+    HashiCorp support
+
+    storage "NAME" {
+    path = "/mnt/vault/data"
+    }
+
+FoundationDB Storage Backend
+    explicitly enabled at build time | not available in the standard Vault binary distributiion
+    High Availability
+
+    storage "NAME" {
+    api_version = 520
+    cluster_file ="/path/toCluster"
+
+    tls_ca_file = ""
+    tls_cert_file = ""
+    tls_key_file = ""
+    tls_password = ""
+
+    path = "vault-top-level-directory"
+    ha_enabled = "true"
+    }
+
+S# Storage Backend
+    No High Availability
+
+    storage "Name" {
+    access_key = ""
+    secret_key =""
+    buket =""
+    }
+
+PostgreSQL
+    High Availability
+    default try to establish ssl connection
+
+    storage "NAME" {
+    connection_url = " .....?sslmode=disabled"
+    }
+    storage "NAME" {
+    connection_url = " .....?sslmode=verify-full"
+    }
+
+MySQL Storage Backend
+    High Availability
+    Need to mention
+    If table doesn't exist --> Vault will try to create it
+
+    storage "NAME" {
+    username= ""
+    password=""
+    database =""
+    ha_enable="true"
+    }
+
+Google Cloud Spanner
+    High Availability
+
+    storage "NAME" {
+    database = "projects/my-project/instances/my-instance/databases/my-database"
+    ha_enabled = "true"
+    }
+
+Google Cloud storage
+    HIgh Availability
+
+    storage "name" {
+    bucket = ""
+    ha_enable ="true"
+    chuck_size = "512"
+    }
+
+
+In-Memory Storage Backend
+    in-memory on the same machine in which VAULT is running --> not persistent data Storage
+    NO HIGH Availability
+    HashiCorp Supported
+
+    storage "inmen"{}
+
+
+###############################################################################
